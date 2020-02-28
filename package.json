@@ -1,0 +1,28 @@
+{
+  "name": "@jayzawrotny/clap",
+  "version": "0.0.1",
+  "description": "A ClojureScript Lumo task runner based on Gulp",
+  "main": "index.js",
+  "scripts": {
+    "test": "lumo test.cljs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eccentric-j/clap.git"
+  },
+  "keywords": [
+    "gulp",
+    "cljs",
+    "clojure",
+    "clojurescript"
+  ],
+  "author": "Jay Zawrotny <jayzawrotny@gmail.com>",
+  "license": "BSD-3-Clause",
+  "bugs": {
+    "url": "https://github.com/eccentric-j/clap/issues"
+  },
+  "homepage": "https://github.com/eccentric-j/clap#readme",
+  "dependencies": {
+    "yargs": "^15.1.0"
+  }
+}
