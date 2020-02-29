@@ -23,6 +23,8 @@
   },
   "homepage": "https://github.com/eccentric-j/clap#readme",
   "dependencies": {
+    "gulp": "^4.0.2",
+    "gulp-cli": "^2.2.0",
     "yargs": "^15.1.0"
   }
 }
