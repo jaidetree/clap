@@ -5,6 +5,7 @@
 (println "I am imported!")
 
 (.task gulp "test"
-       (fn [done]
+       (fn test-task
+         [done]
          (println "I am a task")
          (done)))
