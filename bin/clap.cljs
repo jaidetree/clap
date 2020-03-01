@@ -170,14 +170,14 @@
      (let [tasks (if (pos? (count (.-_ opts)))
                    (.-_ opts)
                    #js ["default"])
-           handler (fn [err]
-                     (when err
-                       (exit 1)))]
+           run (if (.-series opts)
+                 (.series gulp tasks)
+                 (.parallel gulp tasks))]
        (.unmute mute-stdout)
        (.info log "Using gulpfile" (.magenta ansi (tildify gulpfile)))
-       (if (.-series opts)
-         (.series gulp tasks handler)
-         (.parallel gulp #js ["test"] handler)))
+       (run (fn [err]
+              (when err
+                (exit 1)))))
      (catch js/Error e
        (println "Something went wrong")
        (.error log (.red ansi (.-message e)))
