@@ -15,10 +15,15 @@
     ["gulp-cli/lib/shared/log/to-console" :as to-console]
     ["gulp-cli/lib/shared/tildify" :as tildify]
     ["gulp-cli/lib/shared/verify-dependencies" :as verify-deps]
+    ["gulp-cli/lib/versioned/^4.0.0/log/tasks-simple" :as log-tasks-simple]
     ["gulp-cli/package.json" :as gulp-pkg]
     ;; Logging
     ["gulp-cli/lib/versioned/^4.0.0/log/events" :as log-events]
     ["gulp-cli/lib/versioned/^4.0.0/log/sync-task" :as log-sync-task]
+    ["gulp-cli/lib/versioned/^4.0.0/log/tasks-simple" :as log-tasks-simple]
+    ["gulp-cli/lib/versioned/^4.0.0/log/get-task" :as get-task]
+    ["gulp-cli/lib/shared/log/copy-tree" :as copy-tree]
+    ["gulp-cli/lib/shared/log/tasks" :as log-tasks]
     ["gulp-cli/lib/shared/log/verify" :as log-verify]
     ["gulp-cli/lib/shared/log/blacklist-error" :as log-blacklist-error]))
 
@@ -163,23 +168,53 @@
 (log-events gulp)
 (log-sync-task gulp)
 
-(.nextTick
- js/process
- (fn []
-   (try
-     (let [tasks (if (pos? (count (.-_ opts)))
-                   (.-_ opts)
-                   #js ["default"])
-           run (if (.-series opts)
-                 (.series gulp tasks)
-                 (.parallel gulp tasks))]
-       (.unmute mute-stdout)
-       (.info log "Using gulpfile" (.magenta ansi (tildify gulpfile)))
-       (run (fn [err]
-              (when err
-                (exit 1)))))
-     (catch js/Error e
-       (println "Something went wrong")
-       (.error log (.red ansi (.-message e)))
-       (.error log "To list available tasks, try running: gulp --tasks")
-       (exit 1)))))
+(defn simple-tasks
+  [opts]
+  (let [tree (.tree gulp)]
+    (log-tasks-simple (.-nodes tree))))
+
+(defn show-tasks
+  [opts]
+  (let [tree (.tree gulp #js {:deep true})]
+    (set! (.-label tree)
+          (str "Tasks for " (.magenta ansi (tildify gulpfile))))
+    (log-tasks tree opts (get-task gulp))))
+
+(defn json-tasks
+  [opts]
+  (let [output-file (.-tasksJson opts)
+        tree (.tree gulp #js {:deep true})
+        _ (set! (.-label tree)
+                (str "Tasks for " (tildify gulpfile)))
+        json (.stringify js/JSON (copy-tree tree opts))]
+    (if (and (boolean? output-file) output-file)
+      (.log js/console json)
+      (.writeFileSync fs output-file json "utf-8"))))
+
+
+(defn run-tasks
+  [opts]
+  (try
+   (let [tasks (if (pos? (count (.-_ opts)))
+                 (.-_ opts)
+                 #js ["default"])
+         run (if (.-series opts)
+               (.series gulp tasks)
+               (.parallel gulp tasks))]
+     (.unmute mute-stdout)
+     (.info log "Using gulpfile" (.magenta ansi (tildify gulpfile)))
+     (run (fn [err]
+            (when err
+              (exit 1)))))
+   (catch js/Error e
+     (println "Something went wrong")
+     (.error log (.red ansi (.-message e)))
+     (.error log "To list available tasks, try running: gulp --tasks")
+     (exit 1))))
+
+(cond
+  (.-tasksSimple opts) (simple-tasks opts)
+  (.-tasks opts)       (show-tasks opts)
+  (.-tasksJson opts)   (json-tasks opts)
+  :else                (run-tasks opts))
+
