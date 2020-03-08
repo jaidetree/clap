@@ -46,32 +46,52 @@
 (def gulp-cli (js/require "gulp-cli"))
 
 (defn usage
+  "
+  CLI usage help text
+  "
   []
   (str "$0\n" (.bold ansi "Usage:") " gulp " (.blue ansi "[options]") " tasks"))
 
 (defn argv->parser
+  "
+  Parse process.argv against gulp's cli options
+  Takes a JS yargs obj of cli options
+  Returns a parsed JS obj of supplied and defaults args
+  "
   [cli-options]
   (as-> (usage) $
         (.usage yargs $)
         (.options $ cli-options)))
 
 (defn file-exists?
+  "
+  Determine if a file is readable on disk
+  Takes a filepath to test
+  Returns true if file is readable false if not
+  "
   [filepath]
   (try
    (.accessSync fs filepath (.. fs -constants -R_OK))
    true
    (catch js/Error e
-     nil)))
+     false)))
 
 (defn join-path
-  ([p1 p2]
-   (apply join-path [nil p1 p2]))
-  ([default & args]
-   (if (and (nth args 0) (nth args 1))
-     (apply (.-join path) args)
-     default)))
+  "
+  Combine path strs according to host os
+  Takes any str paths
+  Returns str of joined paths
+  "
+  [& args]
+  (apply (.-join path) args))
 
 (defn recursively-find-task-file
+  "
+  Climb directory tree upwards from current directory looking for nearest
+  parent with a gulpfile.cljs.
+  Takes the initial path to search in.
+  Returns the directory str the gulpfile.cljs was found in or nil
+  "
   [init-path]
   (loop [current-path init-path]
     (let [file-path (join-path current-path "gulpfile.cljs")]
@@ -81,6 +101,11 @@
        :else (recur (.resolve path current-path ".."))))))
 
 (defn read-pkg
+  "
+  Load the package.json relative to where the target gulpfile.cljs was found
+  Takes a directory string
+  Returns the package js obj or an empty js obj
+  "
   [dir]
   (when dir
     (let [pkg-path (join-path dir "package.json")]
@@ -97,24 +122,30 @@
 ;; CLI Commands
 
 (defn help
+  "
+  Print CLI options to console
+  "
   [opts]
   (.showHelp parser (.-log js/console))
   (exit 0))
 
-;; console.log('CLI version:', cliVersion);
-;; console.log('Local version:', env.modulePackage.version || 'Unknown');
-;; exit(0);
-
 (defn version
+  "
+  Display lib version
+  "
   [opts]
   (println "CLI version:" (.-version gulp-pkg))
   (println "Local version:" (or (.-version pkg) "Unknown"))
   (exit 0))
 
+;; Set UNDERTAKER_SETTLE ENV flag if continuing a series
 (when (.-continue opts)
-  (set! (.. js/process -env -UNDERTAKE_SETTLE) "true"))
+  (set! (.. js/process -env -UNDERTAKER_SETTLE) "true"))
 
 (defn verify
+  "
+  Verify library and ensure no blacklisted plugins are used
+  "
   [opts]
   (let [pkg-file (if (= (.-verify opts) true)
                    "package.json"
@@ -131,15 +162,26 @@
            (log-verify
             (verify-deps (js/require pkg-path) blacklist))))))))
 
+(defn format-file
+  "
+  Tildifies the file path and colors it magenta
+  Takes a path string
+  "
+  [path-str]
+  (.magenta ansi (tildify path-str)))
+
 (defn no-gulpfile
+  "
+  Tell the user no gulpfile was found
+  "
   [opts]
   (.error log (str
                "Could not find gulpfile.cljs in"
-               (.magenta ansi (tildify cwd))
+               (format-file cwd)
                "or any parent directories"))
   (exit 1))
 
-;; CLI Command Dispatcher
+;; General CLI Command Dispatcher
 
 (to-console log opts)
 
@@ -153,61 +195,110 @@
 (when (not= cwd gulpdir)
   (.chdir js/process gulpdir)
   (.info log "Working directory changed to"
-         (.magenta ansi (tildify gulpdir))))
+         (format-file gulpdir)))
 
+;; Gulp-Specific Command Dispatcher
 
 ;; Load and evaluate gulpfile.cljs to create tasks
 (when gulpfile
   (.execute_path (.-repl js/lumo) gulpfile))
 
-; (gulp-cli)
-; (execute-tasks opts env config)
-; (println opts)
-;; (gulp-cli)
-
 (log-events gulp)
 (log-sync-task gulp)
 
 (defn simple-tasks
+  "
+  Output a list of task names
+  Takes JS obj of parsed yargs args
+  "
   [opts]
   (let [tree (.tree gulp)]
     (log-tasks-simple (.-nodes tree))))
 
-(defn show-tasks
-  [opts]
-  (let [tree (.tree gulp #js {:deep true})]
+(defn tasks-tree
+  "
+  Get a tree of gulp tasks and assign a label with source gulpfile
+  Takes optional arg keywords:
+  - :color boolean - If the gulpfile should be colored
+  Returns a gulp task tree instance
+  "
+  [& {:keys [color]}]
+  (let [tree (.tree gulp #js {:deep true})
+        label (if color
+                (format-file gulpfile)
+                (tildify gulpfile))]
+
     (set! (.-label tree)
-          (str "Tasks for " (.magenta ansi (tildify gulpfile))))
+          (str "Tasks for " label))
+    tree))
+
+(defn show-tasks
+  "
+  Display the task tree to console
+  Takes JS obj of parsed yargs args
+  "
+  [opts]
+  (let [tree (tasks-tree :color true)]
     (log-tasks tree opts (get-task gulp))))
 
 (defn json-tasks
+  "
+  Output the gulp task tree as JSON to consoleor output to another file
+  Takes JS obj of parsed yargs args
+  "
   [opts]
   (let [output-file (.-tasksJson opts)
-        tree (.tree gulp #js {:deep true})
-        _ (set! (.-label tree)
-                (str "Tasks for " (tildify gulpfile)))
+        tree (tasks-tree)
         json (.stringify js/JSON (copy-tree tree opts))]
     (if (and (boolean? output-file) output-file)
       (.log js/console json)
       (.writeFileSync fs output-file json "utf-8"))))
 
+(defn get-tasks
+  "
+  Parse tasks from cli args will run default task if none given
+  Takes JS obj of parsed yargs args
+  Returns JS array of task names
+  "
+  [opts]
+  (let [tasks (.-_ opts)]
+    (if (zero? (count tasks))
+      #js ["default"]
+      tasks)))
+
+(defn task-runner
+  "
+  Create a thunk to run tasks in series or parallel
+  Takes JS obj of parsed yargs args and a JS array of tasks
+  Returns a function that takes a callback to call after tasks complete
+  "
+  [opts tasks]
+  (if (.-series opts)
+    (.series gulp tasks)
+    (.parallel gulp tasks)))
+
+(defn on-complete
+  "
+  Callback when tasks finish exits with error status if err was thrown
+  Takes an error instance or null
+  "
+  [err]
+  (when err
+    (exit 1)))
 
 (defn run-tasks
+  "
+  Runs the specified gulp tasks from CLI args or default
+  Takes JS obj of parsed yargs args from cli options
+  "
   [opts]
   (try
-   (let [tasks (if (pos? (count (.-_ opts)))
-                 (.-_ opts)
-                 #js ["default"])
-         run (if (.-series opts)
-               (.series gulp tasks)
-               (.parallel gulp tasks))]
+   (let [tasks (get-tasks opts)
+         run (task-runner opts tasks)]
      (.unmute mute-stdout)
-     (.info log "Using gulpfile" (.magenta ansi (tildify gulpfile)))
-     (run (fn [err]
-            (when err
-              (exit 1)))))
+     (.info log "Using gulpfile" (format-file gulpfile))
+     (run on-complete))
    (catch js/Error e
-     (println "Something went wrong")
      (.error log (.red ansi (.-message e)))
      (.error log "To list available tasks, try running: gulp --tasks")
      (exit 1))))
